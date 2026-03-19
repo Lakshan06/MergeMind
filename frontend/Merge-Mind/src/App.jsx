@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Dashboard from "./Dashboard";
+import RepoDetails from "./RepoDetails";
 
 function App() {
 
@@ -10,7 +11,7 @@ function App() {
   return (
     <Router>
       <Routes>
-        
+
         <Route path="/" element={
           <div>
             <h1>MergeMind</h1>
@@ -21,6 +22,8 @@ function App() {
         } />
 
         <Route path="/dashboard" element={<Dashboard />} />
+
+        <Route path="/repo/:owner/:repo" element={<RepoDetails />} />
 
       </Routes>
     </Router>
