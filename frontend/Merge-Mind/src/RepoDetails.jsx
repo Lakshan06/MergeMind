@@ -10,115 +10,130 @@ function RepoDetails() {
   const [selectedPR, setSelectedPR] = useState(null);
   const [files, setFiles] = useState([]);
   const [suggestions, setSuggestions] = useState({});
+  const [aiLoading, setAiLoading] = useState({});
 
-  // 🔹 Fetch PRs
   useEffect(() => {
     axios.get(`http://localhost:8000/prs/${owner}/${repo}`)
       .then(res => {
-        console.log("PRS DATA:", res.data);
         setPrs(res.data || []);
         setLoading(false);
       })
       .catch(err => {
-        console.error("ERROR:", err);
+        console.error("PR fetch error:", err);
         setLoading(false);
       });
   }, [owner, repo]);
 
-  // 🔹 Load files of PR
   const loadFiles = (prNumber) => {
     setSelectedPR(prNumber);
 
     axios.get(`http://localhost:8000/pr-files/${owner}/${repo}/${prNumber}`)
-      .then(res => {
-        console.log("FILES:", res.data);
-        setFiles(res.data || []);
-      })
-      .catch(err => console.error(err));
+      .then(res => setFiles(res.data || []))
+      .catch(err => console.error("Files fetch error:", err));
   };
 
-  // 🔹 AI Suggestion
-  const getSuggestion = (patch, index) => {
-    axios.post("http://localhost:8000/ai-suggest", { patch })
-      .then(res => {
-        setSuggestions(prev => ({
-          ...prev,
-          [index]: res.data.suggestion
-        }));
-      })
-      .catch(err => console.error(err));
+  const getSuggestion = async (patch, index) => {
+    if (!patch) {
+      alert("No patch data available");
+      return;
+    }
+
+    setAiLoading(prev => ({ ...prev, [index]: true }));
+
+    try {
+      const res = await axios.post(
+        "http://localhost:8000/ai-suggest",
+        { patch }, // ✅ CORRECT FORMAT
+        {
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+
+      console.log("AI RESPONSE:", res.data);
+
+      setSuggestions(prev => ({
+        ...prev,
+        [index]: res.data.suggestion || "No suggestion returned"
+      }));
+
+    } catch (err) {
+      console.error("AI ERROR:", err);
+      setSuggestions(prev => ({
+        ...prev,
+        [index]: "❌ AI request failed"
+      }));
+    }
+
+    setAiLoading(prev => ({ ...prev, [index]: false }));
   };
 
   return (
-    <div>
-      <h1>PRs for {repo}</h1>
+    <div className="container">
+      <h1>🔀 PRs for {repo}</h1>
 
       {loading && <p>Loading PRs...</p>}
 
-      {!loading && prs.length === 0 && (
-        <p>No Pull Requests found 🚫</p>
-      )}
-
-      {/* 🔹 PR LIST */}
       {prs.map(pr => (
         <div
           key={pr.number}
+          className="card"
           onClick={() => loadFiles(pr.number)}
-          style={{
-            border: "1px solid gray",
-            margin: "10px",
-            padding: "10px",
-            cursor: "pointer"
-          }}
         >
           <h3>{pr.title}</h3>
-          <p>By: {pr.user}</p>
+          <p style={{ color: "#8b949e" }}>👤 {pr.user}</p>
 
-          <p>
-            Status: {
-              pr.mergeable === true ? "✅ No Conflict" :
-              pr.mergeable === false ? "❌ Conflict" :
-              "⏳ Checking..."
+          <span className={`badge ${
+            pr.mergeable === true ? "success" :
+            pr.mergeable === false ? "error" :
+            "pending"
+          }`}>
+            {
+              pr.mergeable === true ? "Mergeable" :
+              pr.mergeable === false ? "Conflict" :
+              "Checking..."
             }
-          </p>
+          </span>
         </div>
       ))}
 
-      {/* 🔹 FILES SECTION */}
       {selectedPR && (
         <div>
-          <h2>Changed Files (PR #{selectedPR})</h2>
-
-          {files.length === 0 && <p>No file changes</p>}
+          <h2>📂 Changed Files (PR #{selectedPR})</h2>
 
           {files.map((file, index) => (
-            <div key={index} style={{
-              border: "1px solid red",
-              margin: "10px",
-              padding: "10px"
-            }}>
+            <div key={index} className="card" style={{ cursor: "default" }}>
               <h4>{file.filename}</h4>
               <p>Status: {file.status}</p>
 
               <pre style={{
-                background: "#eee",
+                background: "#0d1117",
                 padding: "10px",
-                overflowX: "auto"
+                overflowX: "auto",
+                fontSize: "12px",
+                borderRadius: "6px"
               }}>
-                {file.patch}
+                {file.patch || "No diff available"}
               </pre>
 
-              <button onClick={() => getSuggestion(file.patch, index)}>
-                Get AI Suggestion
+              <button
+                className="button"
+                onClick={(e) => {
+                  e.stopPropagation(); // 🔥 IMPORTANT FIX
+                  getSuggestion(file.patch, index);
+                }}
+              >
+                {aiLoading[index] ? "🤖 Analyzing..." : "AI Suggest"}
               </button>
 
               {suggestions[index] && (
-                <p style={{
-                  color: "green",
-                  fontWeight: "bold"
-                }}>
-                  {suggestions[index]}
-                </p>
+                <div className="ai-box">
+                  <strong>🧠 AI Review:</strong>
+                  <pre style={{ whiteSpace: "pre-wrap" }}>
+                    {suggestions[index]}
+                  </pre>
+                </div>
               )}
             </div>
           ))}

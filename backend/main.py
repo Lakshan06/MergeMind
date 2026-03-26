@@ -13,7 +13,7 @@ app = FastAPI()
 # CORS setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5174"],
+   allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -57,7 +57,7 @@ def github_callback(code: str):
 
     ACCESS_TOKEN = token_res.json().get("access_token")
 
-    return RedirectResponse("http://localhost:5174/dashboard")
+    return RedirectResponse("http://localhost:5173/dashboard")
 
 
 # 🔹 Get repos
@@ -157,15 +157,70 @@ def ai_suggest(data: dict):
     if not patch:
         return {"suggestion": "No changes found"}
 
-    if "<<<<<<<" in patch:
-        suggestion = "⚠️ Conflict detected: Consider manual review"
-    elif "+" in patch and "-" in patch:
-        suggestion = "💡 Both sides modified: Try smart merge"
-    elif "+" in patch:
-        suggestion = "✅ Safe to take incoming changes"
-    elif "-" in patch:
-        suggestion = "⚡ Safe to keep existing code"
-    else:
-        suggestion = "🤖 No major changes detected"
+    patch = patch[:1500]  # smaller = faster
 
-    return {"suggestion": suggestion}
+    prompt = f"""
+You are a senior software engineer.
+
+Analyze this Git diff:
+
+1. What changed
+2. Risk level (Low / Medium / High)
+3. Merge decision with reason
+
+Diff:
+{patch}
+"""
+
+    # ✅ OLLAMA (FIXED)
+    try:
+        print("🚀 Calling Ollama...")
+
+        res = requests.post(
+            "http://127.0.0.1:11434/api/generate",  # 🔥 USE 127.0.0.1 (IMPORTANT)
+            json={
+                "model": "llama3",
+                "prompt": prompt,
+                "stream": False
+            },
+            timeout=120  # 🔥 increase timeout
+        )
+
+        print("STATUS:", res.status_code)
+        print("TEXT:", res.text[:300])
+
+        if res.status_code == 200:
+            result = res.json()
+
+            if "response" in result:
+                print("✅ OLLAMA SUCCESS")
+                return {"suggestion": result["response"]}
+
+        print("❌ Ollama bad response")
+
+    except Exception as e:
+        print("❌ Ollama failed:", str(e))
+
+    # ✅ FALLBACK (only if Ollama REALLY fails)
+    print("⚠️ USING FALLBACK")
+
+    risk = "Low"
+    decision = "Safe to merge"
+
+    patch_lower = patch.lower()
+
+    if "delete" in patch_lower or "remove" in patch_lower:
+        risk = "Medium"
+        decision = "Review before merging"
+
+    if "auth" in patch_lower or "password" in patch_lower:
+        risk = "High"
+        decision = "Do NOT merge"
+
+    return {
+        "suggestion": f"""[Fallback]
+
+Risk: {risk}
+Decision: {decision}
+"""
+    }

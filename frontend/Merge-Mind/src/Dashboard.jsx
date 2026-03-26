@@ -4,37 +4,30 @@ import { useNavigate } from "react-router-dom";
 
 function Dashboard() {
   const [repos, setRepos] = useState([]);
-  const navigate = useNavigate(); // ✅ MUST be inside component
+  const navigate = useNavigate();
 
   useEffect(() => {
     axios.get("http://localhost:8000/repos")
-      .then(res => {
-        console.log(res.data);
-        setRepos(res.data);
-      })
-      .catch(err => console.error(err));
+      .then(res => setRepos(res.data || []))
+      .catch(err => console.error("Repo fetch error:", err));
   }, []);
 
   return (
-    <div>
-      <h1>Your Repositories</h1>
+    <div className="container">
+      <h1>📦 Your Repositories</h1>
 
       {repos.map(repo => (
-        <div 
+        <div
           key={repo.id}
-          onClick={() => navigate(`/repo/${repo.owner.login}/${repo.name}`)} // ✅ CLICK HANDLER
-          style={{
-            border: "1px solid gray",
-            margin: "10px",
-            padding: "10px",
-            cursor: "pointer"
-          }}
+          className="card"
+          onClick={() => navigate(`/repo/${repo.owner.login}/${repo.name}`)}
         >
           <h3>{repo.name}</h3>
-          <p>{repo.description}</p>
+          <p style={{ color: "#8b949e" }}>
+            {repo.description || "No description"}
+          </p>
         </div>
       ))}
-
     </div>
   );
 }
