@@ -22,6 +22,8 @@ __pycache__/
 venv/
 .env
 .env.*
+backend/.env
+.env
 *.sqlite3
 
 # -----------------------------
