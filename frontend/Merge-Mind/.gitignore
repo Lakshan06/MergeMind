@@ -1,62 +1,59 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
 # -----------------------------
-# Node / Frontend (React/Vite)
+# 🔹 Node / Frontend (React/Vite)
 # -----------------------------
 node_modules/
 dist/
 build/
 .vite/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-package-lock.json
+.cache/
+*.map
+
+# Lock files (optional - keep if team project)
+# package-lock.json
 
 # -----------------------------
-# Python / Backend (FastAPI)
+# 🔹 Python / FastAPI Backend
 # -----------------------------
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.env
+
 venv/
+.env
 .env.*
 *.sqlite3
 
 # -----------------------------
-# Environment & Secrets
+# 🔹 AI / ML (IMPORTANT for your project)
 # -----------------------------
-.env
-.env.local
-.env.development
-.env.production
+*.bin
+*.pt
+*.pth
+*.onnx
+*.model
+*.gguf
+*.ggml
+models/
+checkpoints/
+.cache/huggingface/
+.huggingface/
+
+# Ollama local models (VERY HEAVY)
+~/.ollama
+ollama/
 
 # -----------------------------
-# OS & Editor Files
+# 🔹 Logs & Temp Files
+# -----------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# -----------------------------
+# 🔹 OS & Editor Files
 # -----------------------------
 .DS_Store
 Thumbs.db
@@ -64,11 +61,22 @@ Thumbs.db
 .idea/
 
 # -----------------------------
-# Logs
+# 🔹 Media (if not needed in repo)
 # -----------------------------
-*.log
+*.mp4
+*.mp3
+*.wav
+*.zip
+*.tar
+*.gz
 
 # -----------------------------
-# Misc
+# 🔹 Coverage / Testing
 # -----------------------------
 coverage/
+.nyc_output/
+
+# -----------------------------
+# 🔹 Misc
+# -----------------------------
+*.local
