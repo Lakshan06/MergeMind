@@ -7,132 +7,241 @@ function RepoDetails() {
 
   const [prs, setPrs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedPR, setSelectedPR] = useState(null);
+
+  const [selectedPRs, setSelectedPRs] = useState([]); // 🔥 MULTI SELECT
+  const [activePR, setActivePR] = useState(null);
+
   const [files, setFiles] = useState([]);
   const [suggestions, setSuggestions] = useState({});
   const [aiLoading, setAiLoading] = useState({});
+  const [actionLoading, setActionLoading] = useState(false);
+  const [smartResult, setSmartResult] = useState("");
 
+  // FETCH PRs
   useEffect(() => {
     axios.get(`http://localhost:8000/prs/${owner}/${repo}`)
       .then(res => {
         setPrs(res.data || []);
         setLoading(false);
       })
-      .catch(err => {
-        console.error("PR fetch error:", err);
-        setLoading(false);
-      });
+      .catch(() => setLoading(false));
   }, [owner, repo]);
 
+  // LOAD FILES
   const loadFiles = (prNumber) => {
-    setSelectedPR(prNumber);
+    setActivePR(prNumber);
+    setSmartResult("");
 
     axios.get(`http://localhost:8000/pr-files/${owner}/${repo}/${prNumber}`)
-      .then(res => setFiles(res.data || []))
-      .catch(err => console.error("Files fetch error:", err));
+      .then(res => setFiles(res.data || []));
   };
 
+  // 🔥 SELECT MULTIPLE PRs
+  const togglePR = (prNumber) => {
+    setSelectedPRs(prev => {
+      if (prev.includes(prNumber)) {
+        return prev.filter(p => p !== prNumber);
+      } else {
+        return [...prev, prNumber];
+      }
+    });
+  };
+
+  // AI Suggest
   const getSuggestion = async (patch, index) => {
-    if (!patch) {
-      alert("No patch data available");
-      return;
+    setAiLoading(prev => ({ ...prev, [index]: true }));
+
+    const res = await axios.post(
+      "http://localhost:8000/ai-suggest",
+      { patch }
+    );
+
+    setSuggestions(prev => ({
+      ...prev,
+      [index]: res.data.suggestion
+    }));
+
+    setAiLoading(prev => ({ ...prev, [index]: false }));
+  };
+
+  // 🔥 SMART MERGE FIXED
+ const smartMerge = async () => {
+  console.log("Selected PR:", activePR); // DEBUG
+
+  if (!activePR) {
+    setSmartResult("❌ Please click a PR first");
+    return;
+  }
+
+  setActionLoading(true);
+  setSmartResult("🤖 Analyzing PR...");
+
+  try {
+    const res = await axios.post(
+      "http://localhost:8000/smart-merge",
+      {
+        owner,
+        repo,
+        pr: activePR   // ✅ FIXED HERE
+      },
+      { timeout: 180000 }
+    );
+
+    console.log("Smart Merge Response:", res.data);
+
+    if (res.data && res.data.result) {
+      setSmartResult(res.data.result);
+    } else {
+      setSmartResult("❌ No response from AI");
     }
 
-    setAiLoading(prev => ({ ...prev, [index]: true }));
+  } catch (err) {
+    console.error("SMART MERGE FRONTEND ERROR:", err);
+    setSmartResult("❌ Smart merge failed");
+  }
+
+  setActionLoading(false);
+};
+
+  // BEST PR
+  const bestPR = async () => {
+    setActionLoading(true);
 
     try {
       const res = await axios.post(
-        "http://localhost:8000/ai-suggest",
-        { patch }, // ✅ CORRECT FORMAT
-        {
-          headers: {
-            "Content-Type": "application/json"
-          }
-        }
+        "http://localhost:8000/best-pr",
+        { owner, repo }
       );
 
-      console.log("AI RESPONSE:", res.data);
+      setSmartResult(`⭐ Best PR Recommended: #${res.data.best_pr}`);
 
-      setSuggestions(prev => ({
-        ...prev,
-        [index]: res.data.suggestion || "No suggestion returned"
-      }));
-
-    } catch (err) {
-      console.error("AI ERROR:", err);
-      setSuggestions(prev => ({
-        ...prev,
-        [index]: "❌ AI request failed"
-      }));
+    } catch {
+      setSmartResult("❌ Best PR failed");
     }
 
-    setAiLoading(prev => ({ ...prev, [index]: false }));
+    setActionLoading(false);
   };
 
   return (
     <div className="container">
       <h1>🔀 PRs for {repo}</h1>
 
-      {loading && <p>Loading PRs...</p>}
+      {loading && <div className="spinner"></div>}
 
-      {prs.map(pr => (
-        <div
-          key={pr.number}
-          className="card"
-          onClick={() => loadFiles(pr.number)}
-        >
-          <h3>{pr.title}</h3>
-          <p style={{ color: "#8b949e" }}>👤 {pr.user}</p>
+     
+      {/* PR LIST */}
+{prs.map(pr => (
+  <div
+    key={pr.number}
+    className="card"
+    onClick={() => {
+      setActivePR(pr.number);   // ✅ SET SELECTED PR
+      loadFiles(pr.number);     // ✅ LOAD FILES
+    }}
+  >
 
-          <span className={`badge ${
-            pr.mergeable === true ? "success" :
-            pr.mergeable === false ? "error" :
-            "pending"
-          }`}>
-            {
-              pr.mergeable === true ? "Mergeable" :
-              pr.mergeable === false ? "Conflict" :
-              "Checking..."
-            }
-          </span>
+    {/* ✅ CHECKBOX (optional, keep if needed) */}
+    <input
+      type="checkbox"
+      checked={selectedPRs.includes(pr.number)}
+      onChange={(e) => {
+        e.stopPropagation();   // ✅ IMPORTANT FIX
+        togglePR(pr.number);
+      }}
+    />
+
+    <span style={{ marginLeft: "10px" }}>
+      <h3>{pr.title}</h3>
+      <p>👤 {pr.user}</p>
+    </span>
+
+    {/* ✅ SHOW SELECTED PR */}
+    {activePR === pr.number && (
+      <p style={{ color: "#58a6ff" }}>✅ Selected</p>
+    )}
+
+  </div>
+))}
+
+      {/* SELECTED PR DISPLAY */}
+      {selectedPRs.length > 0 && (
+        <p style={{ marginTop: "10px", color: "#58a6ff" }}>
+          Selected PRs: {selectedPRs.join(", ")}
+        </p>
+      )}
+
+      {/* ACTION PANEL */}
+      {selectedPRs.length > 0 && (
+        <div className="ai-actions">
+          <button onClick={smartMerge} disabled={actionLoading}>
+            {actionLoading ? "🤖 Processing..." : "🤖 Smart Merge"}
+          </button>
+
+          <button onClick={bestPR} disabled={actionLoading}>
+            ⭐ Best PR
+          </button>
         </div>
-      ))}
+      )}
 
-      {selectedPR && (
+      {/* SMART RESULT */}
+      {smartResult && (
+        <div className="ai-box">
+          <h3>🤖 AI Result</h3>
+
+          {smartResult.split("###").map((sec, i) => {
+            if (!sec.trim()) return null;
+
+            const lines = sec.trim().split("\n");
+            const title = lines[0];
+            const content = lines.slice(1).join("\n");
+
+            return (
+              <div key={i}>
+                <h4>{title}</h4>
+
+                {title.toLowerCase().includes("code") ? (
+                  <pre>{content}</pre>
+                ) : (
+                  <p>{content}</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* FILE VIEW */}
+      {activePR && (
         <div>
-          <h2>📂 Changed Files (PR #{selectedPR})</h2>
+          <h2>📂 Files (PR #{activePR})</h2>
 
           {files.map((file, index) => (
-            <div key={index} className="card" style={{ cursor: "default" }}>
+            <div key={index} className="card">
               <h4>{file.filename}</h4>
-              <p>Status: {file.status}</p>
+              <pre>{file.patch}</pre>
 
-              <pre style={{
-                background: "#0d1117",
-                padding: "10px",
-                overflowX: "auto",
-                fontSize: "12px",
-                borderRadius: "6px"
-              }}>
-                {file.patch || "No diff available"}
-              </pre>
-
-              <button
-                className="button"
-                onClick={(e) => {
-                  e.stopPropagation(); // 🔥 IMPORTANT FIX
-                  getSuggestion(file.patch, index);
-                }}
-              >
-                {aiLoading[index] ? "🤖 Analyzing..." : "AI Suggest"}
+              <button class= "aisuggest" onClick={() => getSuggestion(file.patch, index)}>
+                {aiLoading[index] ? "👀Analyzing..." : "AI Suggest ✦"}
               </button>
 
               {suggestions[index] && (
                 <div className="ai-box">
-                  <strong>🧠 AI Review:</strong>
-                  <pre style={{ whiteSpace: "pre-wrap" }}>
-                    {suggestions[index]}
-                  </pre>
+                  {suggestions[index].split("###").map((sec, i) => {
+                    if (!sec.trim()) return null;
+
+                    const lines = sec.trim().split("\n");
+                    const title = lines[0];
+                    const content = lines.slice(1);
+
+                    return (
+                      <div key={i}>
+                        <h4>{title}</h4>
+                        {content.map((line, j) => (
+                          <p key={j}>{line.replace("-", "•")}</p>
+                        ))}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

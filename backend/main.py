@@ -5,42 +5,42 @@ import requests
 import os
 from dotenv import load_dotenv
 
-# Load env variables
 load_dotenv()
 
 app = FastAPI()
 
-# CORS setup
+# CORS
 app.add_middleware(
     CORSMiddleware,
-   allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Env variables
 CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 
-# TEMP storage (later DB)
 ACCESS_TOKEN = None
 
 
-# 🔹 Root route
+# -----------------------------
+# ROOT
+# -----------------------------
 @app.get("/")
 def home():
     return {"message": "MergeMind Backend Running 🚀"}
 
 
-# 🔹 GitHub Login
+# -----------------------------
+# AUTH
+# -----------------------------
 @app.get("/auth/github")
 def github_login():
     url = f"https://github.com/login/oauth/authorize?client_id={CLIENT_ID}&scope=repo"
     return RedirectResponse(url)
 
 
-# 🔹 Callback
 @app.get("/auth/github/callback")
 def github_callback(code: str):
     global ACCESS_TOKEN
@@ -60,93 +60,76 @@ def github_callback(code: str):
     return RedirectResponse("http://localhost:5173/dashboard")
 
 
-# 🔹 Get repos
+# -----------------------------
+# REPOS
+# -----------------------------
 @app.get("/repos")
 def get_repos():
-    global ACCESS_TOKEN
-
     if not ACCESS_TOKEN:
         return []
 
-    response = requests.get(
+    res = requests.get(
         "https://api.github.com/user/repos",
         headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
     )
 
-    return response.json()
+    return res.json()
 
 
-# 🔹 Get PRs
+# -----------------------------
+# PRs
+# -----------------------------
 @app.get("/prs/{owner}/{repo}")
 def get_prs(owner: str, repo: str):
-    global ACCESS_TOKEN
-
     if not ACCESS_TOKEN:
         return []
 
-    url = f"https://api.github.com/repos/{owner}/{repo}/pulls"
-
-    response = requests.get(
-        url,
+    res = requests.get(
+        f"https://api.github.com/repos/{owner}/{repo}/pulls",
         headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
     )
 
-    if response.status_code != 200:
-        return []
+    prs = res.json()
 
-    prs = response.json()
-
-    if not isinstance(prs, list):
-        return []
-
-    detailed_prs = []
-
+    result = []
     for pr in prs:
-        pr_details = requests.get(
+        detail = requests.get(
             pr["url"],
             headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
         ).json()
 
-        detailed_prs.append({
-            "title": pr.get("title"),
-            "number": pr.get("number"),
-            "mergeable": pr_details.get("mergeable"),
-            "user": pr.get("user", {}).get("login")
-        })
-
-    return detailed_prs
-
-
-# 🔹 Get PR files
-@app.get("/pr-files/{owner}/{repo}/{pr_number}")
-def get_pr_files(owner: str, repo: str, pr_number: int):
-    global ACCESS_TOKEN
-
-    if not ACCESS_TOKEN:
-        return []
-
-    url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/files"
-
-    response = requests.get(
-        url,
-        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
-    )
-
-    if response.status_code != 200:
-        return []
-
-    files = response.json()
-
-    result = []
-
-    for file in files:
         result.append({
-            "filename": file.get("filename"),
-            "status": file.get("status"),
-            "patch": file.get("patch")
+            "title": pr["title"],
+            "number": pr["number"],
+            "mergeable": detail.get("mergeable"),
+            "user": pr["user"]["login"]
         })
 
     return result
+
+
+# -----------------------------
+# PR FILES
+# -----------------------------
+@app.get("/pr-files/{owner}/{repo}/{pr_number}")
+def get_pr_files(owner: str, repo: str, pr_number: int):
+    if not ACCESS_TOKEN:
+        return []
+
+    res = requests.get(
+        f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/files",
+        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    )
+
+    return [
+        {
+            "filename": f["filename"],
+            "status": f["status"],
+            "patch": f.get("patch")
+        }
+        for f in res.json()
+    ]
+
 
 
 # 🔹 AI Suggestion
@@ -159,14 +142,30 @@ def ai_suggest(data: dict):
 
     patch = patch[:1500]  # smaller = faster
 
-    prompt = f"""
-You are a senior software engineer.
+    prompt =  f"""
+You are a senior software engineer reviewing a GitHub pull request.
 
-Analyze this Git diff:
+Explain the changes clearly in simple English.
 
-1. What changed
-2. Risk level (Low / Medium / High)
-3. Merge decision with reason
+Respond EXACTLY in this format:
+
+### What Changed
+- point
+- point
+
+### Risk Level
+Low / Medium / High
+
+### Explanation
+Explain the risk in 1-2 lines
+
+### Merge Decision
+Approve / Review / Reject
+
+### Reason
+Short reason
+
+Keep it clean, do not repeat sections.
 
 Diff:
 {patch}
@@ -224,3 +223,179 @@ Risk: {risk}
 Decision: {decision}
 """
     }
+
+
+
+# -----------------------------
+# 🔥 SMART MERGE (MULTI PR FINAL)
+# -----------------------------
+@app.post("/smart-merge")
+def smart_merge(data: dict):
+    owner = data.get("owner")
+    repo = data.get("repo")
+    pr = data.get("pr")
+
+    if not pr:
+        return {"result": "❌ No PR selected"}
+
+    try:
+        print("🚀 Fetching PR files...")
+
+        res = requests.get(
+            f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr}/files",
+            headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
+        )
+
+        if res.status_code != 200:
+            print("❌ GitHub API failed:", res.status_code)
+            return {"result": "❌ Failed to fetch PR files"}
+
+        files = res.json()
+
+        patches = []
+        file_names = []
+
+        # ✅ LIMIT DATA (PERFORMANCE FIX)
+        for f in files[:3]:
+            if f.get("patch"):
+                patches.append(f["patch"][:400])
+                file_names.append(f["filename"])
+
+        if not patches:
+            return {"result": "❌ No code changes found"}
+
+        combined = "\n\n".join(patches)
+
+        print("📂 Files used:", file_names)
+        print("🚀 Sending to Ollama...")
+
+        prompt = f"""
+You are a senior software engineer.
+
+Analyze this pull request with multiple file changes.
+
+Your job:
+- Understand all changes
+- Improve code quality
+- Remove issues
+- Generate FINAL CLEAN VERSION
+
+Respond EXACTLY:
+
+### Summary
+- what changed
+- what improved
+
+### Final Code
+<clean improved code>
+
+### Why This Is Better
+- reason
+- reason
+
+Files:
+{file_names}
+
+Code:
+{combined}
+"""
+
+        # 🔥 OLLAMA CALL (STRONG FIX)
+        try:
+            res = requests.post(
+                "http://127.0.0.1:11434/api/generate",
+                json={
+                    "model": "llama3",
+                    "prompt": prompt,
+                    "stream": False
+                },
+                timeout=180
+            )
+
+            print("📡 Ollama status:", res.status_code)
+
+            if res.status_code != 200:
+                return {"result": "❌ Ollama API error"}
+
+            data = res.json()
+
+            # ✅ SAFE RESPONSE HANDLING
+            output = data.get("response", "").strip()
+
+            if not output:
+                return {"result": "❌ Empty AI response"}
+
+            print("✅ AI RESPONSE RECEIVED")
+
+            return {"result": output}
+
+        except requests.exceptions.Timeout:
+            print("⏳ Ollama Timeout")
+            return {"result": "❌ AI timeout (model too slow)"}
+
+        except Exception as e:
+            print("🔥 Ollama Error:", str(e))
+            return {"result": f"❌ Ollama error: {str(e)}"}
+
+    except Exception as e:
+        print("🔥 SMART MERGE ERROR:", str(e))
+        return {"result": f"❌ Error: {str(e)}"}
+
+# -----------------------------
+# 🔥 BEST PR (AI BASED FIX)
+# -----------------------------
+@app.post("/best-pr")
+def best_pr(data: dict):
+    owner = data.get("owner")
+    repo = data.get("repo")
+
+    res = requests.get(
+        f"https://api.github.com/repos/{owner}/{repo}/pulls",
+        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    )
+
+    prs = res.json()
+
+    if not prs:
+        return {"best_pr": None}
+
+    summary = ""
+    for pr in prs[:5]:  # 🔥 LIMIT
+        summary += f"PR #{pr['number']}: {pr['title']}\n"
+
+    prompt = f"""
+Choose the best pull request to merge.
+
+Criteria:
+- Stability
+- Simplicity
+- Low risk
+
+PRs:
+{summary}
+
+Answer ONLY like:
+Best PR: <number>
+"""
+
+    try:
+        res = requests.post(
+            "http://127.0.0.1:11434/api/generate",
+            json={"model": "llama3", "prompt": prompt, "stream": False},
+            timeout=25
+        )
+
+        output = res.json().get("response", "")
+
+        # 🔥 EXTRACT NUMBER
+        import re
+        match = re.search(r"\d+", output)
+
+        if match:
+            return {"best_pr": int(match.group())}
+
+    except Exception as e:
+        print("BEST PR ERROR:", e)
+
+    # fallback
+    return {"best_pr": prs[0]["number"]}

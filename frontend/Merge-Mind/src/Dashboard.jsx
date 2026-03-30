@@ -4,19 +4,41 @@ import { useNavigate } from "react-router-dom";
 
 function Dashboard() {
   const [repos, setRepos] = useState([]);
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
     axios.get("http://localhost:8000/repos")
-      .then(res => setRepos(res.data || []))
-      .catch(err => console.error("Repo fetch error:", err));
+      .then(res => {
+        setRepos(res.data || []);
+        setLoading(false); // ✅ FIX
+      })
+      .catch(err => {
+        console.error("Repo fetch error:", err);
+        setLoading(false); // ✅ FIX
+      });
   }, []);
 
   return (
     <div className="container">
       <h1>📦 Your Repositories</h1>
 
-      {repos.map(repo => (
+      {/* ✅ LOADER */}
+      {loading && (
+        <div className="loader">
+          <div className="spinner"></div>
+        </div>
+      )}
+
+      {/* ✅ EMPTY STATE */}
+      {!loading && repos.length === 0 && (
+        <p style={{ color: "#8b949e" }}>
+          No repositories found 🚫
+        </p>
+      )}
+
+      {/* ✅ REPO LIST */}
+      {!loading && repos.map(repo => (
         <div
           key={repo.id}
           className="card"
