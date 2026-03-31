@@ -225,82 +225,130 @@ Decision: {decision}
     }
 
 
+# -----------------------------
+# 🚀 APPLY MERGE (SIMULATION)
+# -----------------------------
+@app.post("/apply-merge")
+def apply_merge(data: dict):
+    owner = data.get("owner")
+    repo = data.get("repo")
+    prs = data.get("prs", [])
+    result = data.get("result")
+
+    print("✅ APPLY MERGE CALLED")
+    print("PRs:", prs)
+
+    if not result:
+        return {"status": "error", "message": "No merge result provided"}
+
+    return {
+        "status": "success",
+        "message": f"✅ Merge applied successfully for PRs {prs}"
+    }
+
 
 # -----------------------------
-# 🔥 SMART MERGE (MULTI PR FINAL)
+# 🔥 SMART MERGE (REAL AI UPGRADE)
 # -----------------------------
 @app.post("/smart-merge")
 def smart_merge(data: dict):
     owner = data.get("owner")
     repo = data.get("repo")
-    pr = data.get("pr")
+    prs = data.get("prs", [])
 
-    if not pr:
-        return {"result": "❌ No PR selected"}
+    if not prs or len(prs) < 2:
+        return {"result": "❌ Select at least 2 PRs"}
 
     try:
-        print("🚀 Fetching PR files...")
+        print("🚀 Fetching PR data:", prs)
 
-        res = requests.get(
-            f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr}/files",
-            headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
-        )
+        file_changes = {}
 
-        if res.status_code != 200:
-            print("❌ GitHub API failed:", res.status_code)
-            return {"result": "❌ Failed to fetch PR files"}
+        for pr in prs:
+            res = requests.get(
+                f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr}/files",
+                headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
+            )
 
-        files = res.json()
+            if res.status_code != 200:
+                continue
 
-        patches = []
-        file_names = []
+            files = res.json()
 
-        # ✅ LIMIT DATA (PERFORMANCE FIX)
-        for f in files[:3]:
-            if f.get("patch"):
-                patches.append(f["patch"][:400])
-                file_names.append(f["filename"])
+            for f in files:
+                filename = f.get("filename")
+                if not filename:
+                    continue
 
-        if not patches:
-            return {"result": "❌ No code changes found"}
+                content = ""
 
-        combined = "\n\n".join(patches)
+                # 🔥 Try raw file
+                raw_url = f.get("raw_url")
+                if raw_url:
+                    try:
+                        raw_res = requests.get(raw_url, timeout=5)
+                        if raw_res.status_code == 200:
+                            content = raw_res.text[:800]
+                    except:
+                        pass
 
-        print("📂 Files used:", file_names)
-        print("🚀 Sending to Ollama...")
+                # 🔥 fallback patch
+                if not content:
+                    patch = f.get("patch")
+                    if patch:
+                        content = patch[:500]
+
+                # 🔥 always keep something
+                if not content:
+                    content = f"// No diff available for {filename}"
+
+                if filename not in file_changes:
+                    file_changes[filename] = []
+
+                file_changes[filename].append({
+                    "pr": pr,
+                    "content": content
+                })
+
+        # 🔥 fallback if empty
+        if not file_changes:
+            return {"result": "⚠ No strong code found, try smaller PRs"}
+
+        structured_input = ""
+
+        for file, changes in file_changes.items():
+            structured_input += f"\n\n### FILE: {file}\n"
+            for c in changes:
+                structured_input += f"\n--- PR #{c['pr']} ---\n{c['content']}\n"
 
         prompt = f"""
-You are a senior software engineer.
+You are a senior engineer merging PRs safely.
 
-Analyze this pull request with multiple file changes.
-
-Your job:
-- Understand all changes
-- Improve code quality
-- Remove issues
-- Generate FINAL CLEAN VERSION
+Rules:
+- Keep working code
+- Remove duplicates
+- Prefer latest logic
+- Keep minimal changes
+- If unsure → choose safest version
 
 Respond EXACTLY:
 
-### Summary
-- what changed
-- what improved
+### Merged Files
+- list files
 
-### Final Code
-<clean improved code>
+### Final Merged Code
+<code>
 
-### Why This Is Better
-- reason
-- reason
+### Conflict Resolution
+- explain
 
-Files:
-{file_names}
+### Developer Notes
+- what to test
 
-Code:
-{combined}
+INPUT:
+{structured_input}
 """
 
-        # 🔥 OLLAMA CALL (STRONG FIX)
         try:
             res = requests.post(
                 "http://127.0.0.1:11434/api/generate",
@@ -309,93 +357,190 @@ Code:
                     "prompt": prompt,
                     "stream": False
                 },
-                timeout=180
+                timeout=120   # 🔥 reduced timeout (better UX)
             )
 
-            print("📡 Ollama status:", res.status_code)
-
             if res.status_code != 200:
-                return {"result": "❌ Ollama API error"}
+                return {"result": "❌ AI service error"}
 
-            data = res.json()
-
-            # ✅ SAFE RESPONSE HANDLING
-            output = data.get("response", "").strip()
+            output = res.json().get("response", "").strip()
 
             if not output:
-                return {"result": "❌ Empty AI response"}
-
-            print("✅ AI RESPONSE RECEIVED")
+                return {"result": "⚠ AI returned empty result"}
 
             return {"result": output}
 
         except requests.exceptions.Timeout:
-            print("⏳ Ollama Timeout")
-            return {"result": "❌ AI timeout (model too slow)"}
+            # 🔥 CRITICAL FIX → NO HARD FAIL
+            return {
+                "result": """### Merged Files
+- fallback
+
+### Final Merged Code
+// AI timeout → manual review required
+
+### Conflict Resolution
+- AI timeout
+
+### Developer Notes
+- retry or merge manually
+"""
+            }
 
         except Exception as e:
-            print("🔥 Ollama Error:", str(e))
-            return {"result": f"❌ Ollama error: {str(e)}"}
+            return {"result": f"❌ AI error: {str(e)}"}
 
     except Exception as e:
-        print("🔥 SMART MERGE ERROR:", str(e))
         return {"result": f"❌ Error: {str(e)}"}
 
+
 # -----------------------------
-# 🔥 BEST PR (AI BASED FIX)
+# 🟢 MERGE READY AI (FINAL + DEBUG + FALLBACK)
 # -----------------------------
-@app.post("/best-pr")
-def best_pr(data: dict):
+@app.post("/merge-ready")
+def merge_ready(data: dict):
     owner = data.get("owner")
     repo = data.get("repo")
 
-    res = requests.get(
-        f"https://api.github.com/repos/{owner}/{repo}/pulls",
-        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
-    )
-
-    prs = res.json()
-
-    if not prs:
-        return {"best_pr": None}
-
-    summary = ""
-    for pr in prs[:5]:  # 🔥 LIMIT
-        summary += f"PR #{pr['number']}: {pr['title']}\n"
-
-    prompt = f"""
-Choose the best pull request to merge.
-
-Criteria:
-- Stability
-- Simplicity
-- Low risk
-
-PRs:
-{summary}
-
-Answer ONLY like:
-Best PR: <number>
-"""
-
     try:
-        res = requests.post(
-            "http://127.0.0.1:11434/api/generate",
-            json={"model": "llama3", "prompt": prompt, "stream": False},
-            timeout=25
+        print("🚀 Fetching PRs...")
+
+        res = requests.get(
+            f"https://api.github.com/repos/{owner}/{repo}/pulls",
+            headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
         )
 
-        output = res.json().get("response", "")
+        if res.status_code != 200:
+            print("❌ GitHub API error:", res.status_code)
+            return {"result": "❌ Failed to fetch PRs"}
 
-        # 🔥 EXTRACT NUMBER
-        import re
-        match = re.search(r"\d+", output)
+        prs = res.json()
 
-        if match:
-            return {"best_pr": int(match.group())}
+        if not prs:
+            return {"result": "No PRs found"}
+
+        ready = []
+        risky = []
+        conflict = []
+
+        summary_for_ai = ""
+
+        # 🔥 Analyze PRs
+        for pr in prs[:6]:
+            detail = requests.get(
+                pr["url"],
+                headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
+            ).json()
+
+            state = detail.get("mergeable_state")
+
+            info = f"PR #{pr['number']}: {pr['title']} ({state})\n"
+            summary_for_ai += info
+
+            if state == "clean":
+                ready.append(pr["number"])
+            elif state in ["dirty", "conflicting"]:
+                conflict.append(pr["number"])
+            else:
+                risky.append(pr["number"])
+
+        print("📊 READY:", ready)
+        print("⚠️ RISKY:", risky)
+        print("❌ CONFLICT:", conflict)
+
+        # -----------------------------
+        # 🤖 AI PART (WITH DEBUG)
+        # -----------------------------
+        prompt = f"""
+You are a senior software engineer.
+
+Analyze pull requests based on mergeability.
+
+Respond EXACTLY:
+
+### Ready to Merge
+- list PR numbers
+
+### Risky PRs
+- list PR numbers
+
+### Conflicts
+- list PR numbers
+
+### Final Recommendation
+- what should developer do
+
+PR Data:
+{summary_for_ai}
+"""
+
+        ai_output = ""
+
+        try:
+            print("🚀 Sending to Ollama...")
+
+            ai_res = requests.post(
+                "http://127.0.0.1:11434/api/generate",
+                json={
+                    "model": "llama3",
+                    "prompt": prompt,
+                    "stream": False
+                },
+                timeout=90
+            )
+
+            print("📡 Ollama status:", ai_res.status_code)
+
+            if ai_res.status_code == 200:
+                data_ai = ai_res.json()
+                ai_output = data_ai.get("response", "").strip()
+
+                if ai_output:
+                    print("✅ AI SUCCESS")
+                else:
+                    print("⚠️ Empty AI response")
+
+            else:
+                print("❌ Ollama bad status")
+
+        except requests.exceptions.Timeout:
+            print("⏳ AI TIMEOUT")
+
+        except Exception as e:
+            print("🔥 AI ERROR:", str(e))
+
+        # -----------------------------
+        # 🧠 FALLBACK (VERY IMPORTANT)
+        # -----------------------------
+        if not ai_output:
+            print("⚠️ USING FALLBACK AI")
+
+            ai_output = f"""
+### Ready to Merge
+{', '.join([f'PR #{p}' for p in ready]) or 'None'}
+
+### Risky PRs
+{', '.join([f'PR #{p}' for p in risky]) or 'None'}
+
+### Conflicts
+{', '.join([f'PR #{p}' for p in conflict]) or 'None'}
+
+### Final Recommendation
+- Merge READY PRs first
+- Review RISKY PRs carefully
+- Fix conflicts before merging
+"""
+
+        # -----------------------------
+        # ✅ FINAL RESPONSE
+        # -----------------------------
+        return {
+            "ready": ready,
+            "risky": risky,
+            "conflict": conflict,
+            "ai": ai_output
+        }
 
     except Exception as e:
-        print("BEST PR ERROR:", e)
-
-    # fallback
-    return {"best_pr": prs[0]["number"]}
+        print("🔥 MERGE READY ERROR:", str(e))
+        return {"result": "❌ MergeReady failed"}

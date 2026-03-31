@@ -16,6 +16,7 @@ function RepoDetails() {
   const [aiLoading, setAiLoading] = useState({});
   const [actionLoading, setActionLoading] = useState(false);
   const [smartResult, setSmartResult] = useState("");
+  const [mergeAccepted, setMergeAccepted] = useState(false);
 
   // FETCH PRs
   useEffect(() => {
@@ -66,15 +67,16 @@ function RepoDetails() {
 
   // 🔥 SMART MERGE FIXED
  const smartMerge = async () => {
-  console.log("Selected PR:", activePR); // DEBUG
+  console.log("Selected PRs:", selectedPRs);
 
-  if (!activePR) {
-    setSmartResult("❌ Please click a PR first");
+  if (selectedPRs.length < 2) {
+    setSmartResult("❌ Select at least 2 PRs");
     return;
   }
 
+  setMergeAccepted(false); // 🔥 reset state
   setActionLoading(true);
-  setSmartResult("🤖 Analyzing PR...");
+  setSmartResult("🤖 Merging PRs intelligently...");
 
   try {
     const res = await axios.post(
@@ -82,12 +84,10 @@ function RepoDetails() {
       {
         owner,
         repo,
-        pr: activePR   // ✅ FIXED HERE
+        prs: selectedPRs
       },
       { timeout: 180000 }
     );
-
-    console.log("Smart Merge Response:", res.data);
 
     if (res.data && res.data.result) {
       setSmartResult(res.data.result);
@@ -96,13 +96,51 @@ function RepoDetails() {
     }
 
   } catch (err) {
-    console.error("SMART MERGE FRONTEND ERROR:", err);
+    console.error("SMART MERGE ERROR:", err);
     setSmartResult("❌ Smart merge failed");
   }
 
   setActionLoading(false);
 };
 
+//mergeready Ai
+const mergeReady = async () => {
+  setActionLoading(true);
+  setSmartResult("🟢 Scanning PRs...");
+
+  try {
+    const res = await axios.post(
+      "http://localhost:8000/merge-ready",
+      { owner, repo }
+    );
+
+    let text = "";
+
+    if (res.data.ready?.length) {
+      text += `### 🟢 Ready to Merge\n${res.data.ready.map(p => `✔ PR #${p}`).join("\n")}\n\n`;
+    }
+
+    if (res.data.risky?.length) {
+      text += `### ⚠ Risky PRs\n${res.data.risky.map(p => `⚠ PR #${p}`).join("\n")}\n\n`;
+    }
+
+    if (res.data.conflict?.length) {
+      text += `### ❌ Conflicts\n${res.data.conflict.map(p => `✖ PR #${p}`).join("\n")}\n\n`;
+    }
+
+    if (res.data.ai) {
+      text += `### 🤖 AI Insight\n${res.data.ai}`;
+    }
+
+    setSmartResult(text);
+
+  } catch (err) {
+    console.error(err);
+    setSmartResult("❌ MergeReady AI failed");
+  }
+
+  setActionLoading(false);
+};
   // BEST PR
   const bestPR = async () => {
     setActionLoading(true);
@@ -135,17 +173,17 @@ function RepoDetails() {
     key={pr.number}
     className="card"
     onClick={() => {
-      setActivePR(pr.number);   // ✅ SET SELECTED PR
-      loadFiles(pr.number);     // ✅ LOAD FILES
+      setActivePR(pr.number);   // ✅ for file view
+      loadFiles(pr.number);
     }}
   >
 
-    {/* ✅ CHECKBOX (optional, keep if needed) */}
+    {/* ✅ MULTI SELECT CHECKBOX (FOR SMART MERGE) */}
     <input
       type="checkbox"
       checked={selectedPRs.includes(pr.number)}
       onChange={(e) => {
-        e.stopPropagation();   // ✅ IMPORTANT FIX
+        e.stopPropagation();   // 🔥 VERY IMPORTANT (prevents click conflict)
         togglePR(pr.number);
       }}
     />
@@ -155,13 +193,19 @@ function RepoDetails() {
       <p>👤 {pr.user}</p>
     </span>
 
-    {/* ✅ SHOW SELECTED PR */}
+    {/* ✅ ACTIVE PR (for file view) */}
     {activePR === pr.number && (
-      <p style={{ color: "#58a6ff" }}>✅ Selected</p>
+      <p style={{ color: "#58a6ff" }}>📂 Viewing</p>
+    )}
+
+    {/* ✅ SELECTED PR (for smart merge) */}
+    {selectedPRs.includes(pr.number) && (
+      <p style={{ color: "#2ea043" }}>✅ Selected for Merge</p>
     )}
 
   </div>
 ))}
+
 
       {/* SELECTED PR DISPLAY */}
       {selectedPRs.length > 0 && (
@@ -177,38 +221,155 @@ function RepoDetails() {
             {actionLoading ? "🤖 Processing..." : "🤖 Smart Merge"}
           </button>
 
-          <button onClick={bestPR} disabled={actionLoading}>
-            ⭐ Best PR
+          <button onClick={mergeReady} disabled={actionLoading}>
+         🟢 MergeReady AI
+        </button>
+        </div>
+      )}
+
+      
+      {/* SMART RESULT */}
+{/* SMART RESULT */}
+{smartResult && (
+  <div className="ai-box">
+    <h3>🤖 Smart Merge Studio</h3>
+
+    {/* 🔥 LOADING UI */}
+    {actionLoading && (
+      <p style={{ color: "#58a6ff" }}>
+        ⏳ AI is merging PRs... please wait
+      </p>
+    )}
+
+    {/* 🔥 SHOW BUTTONS ONLY WHEN READY */}
+    {!actionLoading &&
+      smartResult &&
+      !mergeAccepted &&
+      !smartResult.includes("❌") &&
+      !smartResult.includes("⏳") && (
+        <div style={{ marginBottom: "15px" }}>
+          <button
+            style={{
+              marginRight: "10px",
+              background: "#2ea043",
+              border: "none",
+              padding: "8px 15px",
+              borderRadius: "6px",
+              cursor: "pointer"
+            }}
+            onClick={async () => {
+              try {
+                setActionLoading(true);
+
+                await axios.post("http://localhost:8000/apply-merge", {
+                  owner,
+                  repo,
+                  prs: selectedPRs,
+                  result: smartResult
+                });
+
+                setMergeAccepted(true);
+              } catch {
+                alert("❌ Failed to apply merge");
+              }
+
+              setActionLoading(false);
+            }}
+          >
+            ✅ Accept Merge
+          </button>
+
+          <button
+            style={{
+              background: "#f85149",
+              border: "none",
+              padding: "8px 15px",
+              borderRadius: "6px",
+              cursor: "pointer"
+            }}
+            onClick={() => {
+              setSmartResult("");
+              setMergeAccepted(false);
+            }}
+          >
+            ❌ Reject
           </button>
         </div>
       )}
 
-      {/* SMART RESULT */}
-      {smartResult && (
-        <div className="ai-box">
-          <h3>🤖 AI Result</h3>
+    {/* 🔥 RESULT DISPLAY */}
+    {!actionLoading &&
+      smartResult.split("###").map((sec, i) => {
+        if (!sec.trim()) return null;
 
-          {smartResult.split("###").map((sec, i) => {
-            if (!sec.trim()) return null;
+        const lines = sec.trim().split("\n");
+        const title = lines[0].toLowerCase();
+        const content = lines.slice(1).join("\n");
 
-            const lines = sec.trim().split("\n");
-            const title = lines[0];
-            const content = lines.slice(1).join("\n");
+        let boxStyle = {};
+        let icon = "📄";
 
-            return (
-              <div key={i}>
-                <h4>{title}</h4>
+        if (title.includes("merged")) {
+          icon = "📂";
+          boxStyle = { borderLeft: "4px solid #58a6ff" };
+        }
 
-                {title.toLowerCase().includes("code") ? (
-                  <pre>{content}</pre>
-                ) : (
-                  <p>{content}</p>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+        if (title.includes("final")) {
+          icon = "💻";
+          boxStyle = { borderLeft: "4px solid #2ea043" };
+        }
+
+        if (title.includes("conflict")) {
+          icon = "⚠";
+          boxStyle = { borderLeft: "4px solid #f85149" };
+        }
+
+        if (title.includes("notes")) {
+          icon = "🧠";
+          boxStyle = { borderLeft: "4px solid #a371f7" };
+        }
+
+        return (
+          <div
+            key={i}
+            style={{
+              marginBottom: "20px",
+              padding: "15px",
+              background: "#161b22",
+              borderRadius: "10px",
+              ...boxStyle
+            }}
+          >
+            <h4>{icon} {lines[0]}</h4>
+
+            {title.includes("code") ? (
+              <pre
+                style={{
+                  background: "#0d1117",
+                  padding: "15px",
+                  borderRadius: "8px",
+                  overflowX: "auto"
+                }}
+              >
+                {content}
+              </pre>
+            ) : (
+              content.split("\n").map((line, j) => (
+                <p key={j}>{line.replace("-", "•")}</p>
+              ))
+            )}
+          </div>
+        );
+      })}
+
+    {/* SUCCESS */}
+    {mergeAccepted && (
+      <div style={{ color: "#2ea043", marginTop: "10px" }}>
+        ✅ Merge Applied Successfully 🚀
+      </div>
+    )}
+  </div>
+)}
 
       {/* FILE VIEW */}
       {activePR && (
