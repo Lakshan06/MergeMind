@@ -11,19 +11,25 @@ function LandingPage() {
 
       <Navbar />
 
-      {/* HERO SECTION */}
+      {/* HERO */}
       <section className="hero">
-        <h1 className="hero-title">
-          🚀 MergeMind
-        </h1>
+        <div className="hero-content">
 
-        <p className="hero-subtitle">
-          AI-powered GitHub PR Intelligence — Review faster, merge safer.
-        </p>
+          <h1 className="hero-title">
+            🚀 MergeMind
+          </h1>
 
-        <button className="cta-btn" onClick={handleLogin}>
-          Get Started with GitHub
-        </button>
+          <p className="hero-subtitle">
+            AI-powered GitHub PR Intelligence — Review faster, merge safer.
+          </p>
+
+          <div className="hero-actions">
+            <button className="cta-btn" onClick={handleLogin}>
+              Get Started with GitHub
+            </button>
+          </div>
+
+        </div>
       </section>
 
       {/* ABOUT */}
@@ -46,7 +52,7 @@ function LandingPage() {
         </p>
       </section>
 
-      {/* SOLUTION */}
+      {/* FEATURES */}
       <section id="features" className="section">
         <h2>Our Solution</h2>
 

@@ -8,7 +8,7 @@ function RepoDetails() {
   const [prs, setPrs] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const [selectedPRs, setSelectedPRs] = useState([]); // 🔥 MULTI SELECT
+  const [selectedPRs, setSelectedPRs] = useState([]);
   const [activePR, setActivePR] = useState(null);
 
   const [files, setFiles] = useState([]);
@@ -16,7 +16,9 @@ function RepoDetails() {
   const [aiLoading, setAiLoading] = useState({});
   const [actionLoading, setActionLoading] = useState(false);
   const [smartResult, setSmartResult] = useState("");
+  const [mergedFiles, setMergedFiles] = useState({});  // {filename: code} from smart-merge
   const [mergeAccepted, setMergeAccepted] = useState(false);
+  const [createdPR, setCreatedPR] = useState(null);   // {pr_url, pr_number, branch}
 
   // FETCH PRs
   useEffect(() => {
@@ -65,43 +67,39 @@ function RepoDetails() {
     setAiLoading(prev => ({ ...prev, [index]: false }));
   };
 
-  // 🔥 SMART MERGE FIXED
- const smartMerge = async () => {
-  console.log("Selected PRs:", selectedPRs);
-
-  if (selectedPRs.length < 2) {
-    setSmartResult("❌ Select at least 2 PRs");
-    return;
-  }
-
-  setMergeAccepted(false); // 🔥 reset state
-  setActionLoading(true);
-  setSmartResult("🤖 Merging PRs intelligently...");
-
-  try {
-    const res = await axios.post(
-      "http://localhost:8000/smart-merge",
-      {
-        owner,
-        repo,
-        prs: selectedPRs
-      },
-      { timeout: 180000 }
-    );
-
-    if (res.data && res.data.result) {
-      setSmartResult(res.data.result);
-    } else {
-      setSmartResult("❌ No response from AI");
+  // SMART MERGE
+  const smartMerge = async () => {
+    if (selectedPRs.length < 2) {
+      setSmartResult("❌ Select at least 2 PRs");
+      return;
     }
 
-  } catch (err) {
-    console.error("SMART MERGE ERROR:", err);
-    setSmartResult("❌ Smart merge failed");
-  }
+    setMergeAccepted(false);
+    setCreatedPR(null);
+    setMergedFiles({});
+    setActionLoading(true);
+    setSmartResult("🤖 AI is fetching and merging your PRs...");
 
-  setActionLoading(false);
-};
+    try {
+      const res = await axios.post(
+        "http://localhost:8000/smart-merge",
+        { owner, repo, prs: selectedPRs },
+        { timeout: 240000 }
+      );
+
+      if (res.data?.result) {
+        setSmartResult(res.data.result);
+        setMergedFiles(res.data.files || {});   // store structured files for real PR
+      } else {
+        setSmartResult("❌ No response from AI");
+      }
+    } catch (err) {
+      console.error("SMART MERGE ERROR:", err);
+      setSmartResult("❌ Smart merge failed — " + (err.message || "unknown error"));
+    }
+
+    setActionLoading(false);
+  };
 
 //mergeready Ai
 const mergeReady = async () => {
@@ -228,144 +226,209 @@ const mergeReady = async () => {
       )}
 
       
-      {/* SMART RESULT */}
+     
 {/* SMART RESULT */}
 {smartResult && (
   <div className="ai-box">
     <h3>🤖 Smart Merge Studio</h3>
 
-    {/* 🔥 LOADING UI */}
+    {/* LOADING */}
     {actionLoading && (
-      <p style={{ color: "#58a6ff" }}>
-        ⏳ AI is merging PRs... please wait
-      </p>
+      <div>
+        <p style={{ color: "#58a6ff" }}>🤖 AI is analysing and merging your PRs...</p>
+        <div className="progress-bar"><div className="progress-fill"></div></div>
+      </div>
     )}
 
-    {/* 🔥 SHOW BUTTONS ONLY WHEN READY */}
-    {!actionLoading &&
-      smartResult &&
-      !mergeAccepted &&
-      !smartResult.includes("❌") &&
-      !smartResult.includes("⏳") && (
-        <div style={{ marginBottom: "15px" }}>
+    {/* ACTION BUTTONS — Accept / Reject */}
+    {!actionLoading && smartResult && !mergeAccepted &&
+      !smartResult.includes("❌") && !smartResult.includes("⏳") &&
+      Object.keys(mergedFiles).length > 0 && (
+        <div style={{ marginBottom: "16px", display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+
+          {/* ACCEPT — creates real GitHub PR */}
           <button
-            style={{
-              marginRight: "10px",
-              background: "#2ea043",
-              border: "none",
-              padding: "8px 15px",
-              borderRadius: "6px",
-              cursor: "pointer"
-            }}
+            id="accept-merge-btn"
+            style={{ background: "#2ea043", border: "none", padding: "10px 20px", borderRadius: "6px", cursor: "pointer", fontWeight: 700, fontSize: "14px", color: "#fff" }}
             onClick={async () => {
+              setActionLoading(true);
               try {
-                setActionLoading(true);
+                const res = await axios.post(
+                  "http://localhost:8000/apply-merge",
+                  {
+                    owner,
+                    repo,
+                    prs: selectedPRs,
+                    merged_files: mergedFiles   // real structured data, not markdown
+                  },
+                  { timeout: 60000 }
+                );
 
-                await axios.post("http://localhost:8000/apply-merge", {
-                  owner,
-                  repo,
-                  prs: selectedPRs,
-                  result: smartResult
-                });
-
-                setMergeAccepted(true);
-              } catch {
-                alert("❌ Failed to apply merge");
+                if (res.data?.status === "success") {
+                  setMergeAccepted(true);
+                  setCreatedPR(res.data);   // {pr_url, pr_number, branch, committed}
+                } else {
+                  alert("❌ " + (res.data?.message || "PR creation failed"));
+                }
+              } catch (err) {
+                alert("❌ Failed: " + (err.response?.data?.message || err.message));
               }
-
               setActionLoading(false);
             }}
           >
-            ✅ Accept Merge
+            ✅ Accept &amp; Create PR
           </button>
 
+          {/* REJECT */}
           <button
-            style={{
-              background: "#f85149",
-              border: "none",
-              padding: "8px 15px",
-              borderRadius: "6px",
-              cursor: "pointer"
-            }}
+            id="reject-merge-btn"
+            style={{ background: "#f85149", border: "none", padding: "10px 20px", borderRadius: "6px", cursor: "pointer", fontWeight: 700, fontSize: "14px", color: "#fff" }}
             onClick={() => {
               setSmartResult("");
+              setMergedFiles({});
               setMergeAccepted(false);
+              setCreatedPR(null);
             }}
           >
             ❌ Reject
           </button>
+
+          <span style={{ color: "#8b949e", fontSize: "12px" }}>
+            💡 Accept will create a real GitHub PR with the merged code
+          </span>
         </div>
       )}
 
-    {/* 🔥 RESULT DISPLAY */}
-    {!actionLoading &&
-      smartResult.split("###").map((sec, i) => {
-        if (!sec.trim()) return null;
+    {/* SMART MERGE RESULT RENDERER */}
+    {!actionLoading && (() => {
+      const sections = smartResult.split(/\n(?=### )/).filter(s => s.trim());
 
-        const lines = sec.trim().split("\n");
-        const title = lines[0].toLowerCase();
-        const content = lines.slice(1).join("\n");
+      return sections.map((sec, i) => {
+        const lines   = sec.trim().split("\n");
+        const rawTitle = lines[0].replace(/^### /, "").trim();
+        const body    = lines.slice(1).join("\n").trim();
 
-        let boxStyle = {};
-        let icon = "📄";
-
-        if (title.includes("merged")) {
-          icon = "📂";
-          boxStyle = { borderLeft: "4px solid #58a6ff" };
-        }
-
-        if (title.includes("final")) {
-          icon = "💻";
-          boxStyle = { borderLeft: "4px solid #2ea043" };
-        }
-
-        if (title.includes("conflict")) {
-          icon = "⚠";
-          boxStyle = { borderLeft: "4px solid #f85149" };
-        }
-
-        if (title.includes("notes")) {
-          icon = "🧠";
-          boxStyle = { borderLeft: "4px solid #a371f7" };
-        }
-
-        return (
-          <div
-            key={i}
-            style={{
-              marginBottom: "20px",
-              padding: "15px",
-              background: "#161b22",
-              borderRadius: "10px",
-              ...boxStyle
-            }}
-          >
-            <h4>{icon} {lines[0]}</h4>
-
-            {title.includes("code") ? (
-              <pre
-                style={{
-                  background: "#0d1117",
-                  padding: "15px",
-                  borderRadius: "8px",
-                  overflowX: "auto"
-                }}
-              >
-                {content}
+        // ── "Final Merged Code" section → code card with Copy button
+        if (rawTitle === "Final Merged Code") {
+          const codeMatch = body.match(/```[^\n]*\n([\s\S]*?)```/);
+          const code = codeMatch ? codeMatch[1] : body;
+          return (
+            <div key={i} style={{ marginBottom: "20px", borderRadius: "10px", overflow: "hidden", border: "1px solid #2ea043" }}>
+              <div style={{ background: "#161b22", padding: "10px 15px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ color: "#2ea043", fontWeight: 700 }}>💻 Final Merged Code</span>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(code);
+                    alert("✅ Code copied to clipboard!");
+                  }}
+                  style={{ background: "#238636", border: "none", color: "#fff", padding: "5px 12px", borderRadius: "5px", cursor: "pointer", fontSize: "12px", fontWeight: 600 }}
+                >📋 Copy Code</button>
+              </div>
+              <pre style={{ background: "#0d1117", margin: 0, padding: "16px", overflowX: "auto", whiteSpace: "pre", fontSize: "13px", lineHeight: "1.5", color: "#e6edf3" }}>
+                {code.trim()}
               </pre>
-            ) : (
-              content.split("\n").map((line, j) => (
-                <p key={j}>{line.replace("-", "•")}</p>
-              ))
-            )}
+            </div>
+          );
+        }
+
+        // ── "Merge Explanation" section → formatted explanation card
+        if (rawTitle === "Merge Explanation") {
+          const explanationLines = body.split("\n");
+          return (
+            <div key={i} style={{ marginBottom: "20px", padding: "16px", background: "#161b22", borderRadius: "10px", borderLeft: "4px solid #a371f7" }}>
+              <h4 style={{ color: "#a371f7", marginBottom: "12px" }}>🧠 Merge Explanation</h4>
+              {explanationLines.map((line, j) => {
+                if (!line.trim()) return <br key={j} />;
+                if (line.startsWith("**") && line.endsWith("**"))
+                  return <p key={j} style={{ color: "#58a6ff", fontWeight: 700, marginTop: "10px", marginBottom: "4px" }}>{line.replace(/\*\*/g, "")}</p>;
+                if (line.startsWith("- "))
+                  return <p key={j} style={{ color: "#c9d1d9", paddingLeft: "12px", marginBottom: "4px" }}>• {line.slice(2)}</p>;
+                return <p key={j} style={{ color: "#c9d1d9", marginBottom: "4px" }}>{line}</p>;
+              })}
+            </div>
+          );
+        }
+
+        // ── "📄 File:" section header
+        if (rawTitle.startsWith("📄 File:")) {
+          return (
+            <div key={i} style={{ margin: "24px 0 8px 0", padding: "10px 14px", background: "#21262d", borderRadius: "8px", borderLeft: "4px solid #58a6ff" }}>
+              <h4 style={{ color: "#58a6ff", margin: 0 }}>📄 {rawTitle.replace("📄 ", "")}</h4>
+            </div>
+          );
+        }
+
+        // ── "Merged PRs" summary
+        if (rawTitle === "Merged PRs") {
+          return (
+            <div key={i} style={{ marginBottom: "16px", padding: "12px 16px", background: "#161b22", borderRadius: "8px", borderLeft: "4px solid #58a6ff" }}>
+              <h4 style={{ color: "#58a6ff", marginBottom: "8px" }}>🔀 Merged PRs</h4>
+              {body.split("\n").filter(Boolean).map((l, j) => (
+                <p key={j} style={{ color: "#c9d1d9", marginBottom: "4px" }}>{l.replace(/\*\*/g, "")}</p>
+              ))}
+            </div>
+          );
+        }
+
+        // ── "Developer Notes" & everything else
+        if (rawTitle === "Developer Notes") {
+          return (
+            <div key={i} style={{ marginTop: "16px", padding: "12px 16px", background: "#161b22", borderRadius: "8px", borderLeft: "4px solid #30363d", opacity: 0.75 }}>
+              <h4 style={{ color: "#8b949e", marginBottom: "8px" }}>🧾 Developer Notes</h4>
+              {body.split("\n").filter(Boolean).map((l, j) => (
+                <p key={j} style={{ color: "#8b949e", fontSize: "12px", marginBottom: "2px" }}>{l}</p>
+              ))}
+            </div>
+          );
+        }
+
+        // ── Separator line (---)
+        if (rawTitle === "---") return <hr key={i} style={{ borderColor: "#30363d", margin: "20px 0" }} />;
+
+        // ── Generic fallback section
+        return (
+          <div key={i} style={{ marginBottom: "16px", padding: "14px", background: "#161b22", borderRadius: "8px" }}>
+            <h4 style={{ color: "#e6edf3", marginBottom: "8px" }}>{rawTitle}</h4>
+            {body.split("\n").map((l, j) => <p key={j} style={{ color: "#c9d1d9", marginBottom: "4px" }}>{l}</p>)}
           </div>
         );
-      })}
+      });
+    })()}
 
-    {/* SUCCESS */}
-    {mergeAccepted && (
-      <div style={{ color: "#2ea043", marginTop: "10px" }}>
-        ✅ Merge Applied Successfully 🚀
+    {/* SUCCESS BANNER — real PR created */}
+    {mergeAccepted && createdPR && (
+      <div style={{
+        marginTop: "16px",
+        padding: "16px 20px",
+        background: "#0d2d1a",
+        border: "1px solid #2ea043",
+        borderRadius: "10px"
+      }}>
+        <p style={{ color: "#3fb950", fontWeight: 700, fontSize: "16px", marginBottom: "8px" }}>
+          ✅ PR #{createdPR.pr_number} created successfully!
+        </p>
+        <p style={{ color: "#8b949e", fontSize: "13px", marginBottom: "12px" }}>
+          Branch: <code style={{ color: "#58a6ff" }}>{createdPR.branch}</code>
+          &nbsp;·&nbsp;
+          Files committed: {createdPR.committed?.join(", ")}
+        </p>
+        <a
+          href={createdPR.pr_url}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            display: "inline-block",
+            background: "#238636",
+            color: "#fff",
+            padding: "8px 18px",
+            borderRadius: "6px",
+            fontWeight: 700,
+            textDecoration: "none",
+            fontSize: "14px"
+          }}
+        >
+          🔗 View PR on GitHub →
+        </a>
       </div>
     )}
   </div>
@@ -381,7 +444,7 @@ const mergeReady = async () => {
               <h4>{file.filename}</h4>
               <pre>{file.patch}</pre>
 
-              <button class= "aisuggest" onClick={() => getSuggestion(file.patch, index)}>
+              <button className="aisuggest" onClick={() => getSuggestion(file.patch, index)}>
                 {aiLoading[index] ? "👀Analyzing..." : "AI Suggest ✦"}
               </button>
 

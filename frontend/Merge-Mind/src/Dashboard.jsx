@@ -23,13 +23,16 @@ function Dashboard() {
     <div className="container">
       <h1>📦 Your Repositories</h1>
 
-      {/* ✅ LOADER */}
-      {loading && (
-        <div className="loader">
-          <div className="spinner"></div>
-        </div>
-      )}
-
+      {/* LOADER */}
+{loading && (
+  <div className="loader">
+    <div className="spinner"></div>
+    <p className="loader-text">Fetching your repositories...</p>
+    <div className="progress-bar">
+      <div className="progress-fill"></div>
+    </div>
+  </div>
+)}
       {/* ✅ EMPTY STATE */}
       {!loading && repos.length === 0 && (
         <p style={{ color: "#8b949e" }}>
